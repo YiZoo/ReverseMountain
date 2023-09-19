@@ -24,12 +24,18 @@ async def encrypt(websocket):
         await websocket.close()
         return
     workers[params['group']] = websocket  # 保存每个组的worker,以便同组spider广播消息
-    async for message in websocket:  # TODO 可能引发异常，未捕获
-        spider_key = json.loads(message).get("spider", None)
-        if spider_key:
-            spider = spiders.get(spider_key)
-            websockets.broadcast({spider}, message)
-    workers.pop(params['group'])
+    try:
+        async for message in websocket:
+            spider_key = json.loads(message).get("spider", None)
+            if spider_key:
+                spider = spiders.get(spider_key)
+                websockets.broadcast({spider}, message)
+    except websockets.ConnectionClosedOK:
+        pass
+    except Exception as e:
+        print(f"Error in encrypt: {e}")
+    finally:
+        workers.pop(params['group'])
 
 
 async def get_secret(websocket):
@@ -56,6 +62,7 @@ async def get_secret(websocket):
         websockets.broadcast({worker}, json.dumps(params))
     else:
         await websocket.send(json.dumps({"code": 400, "msg": "no worker"}))
+        await websocket.close()
         return
     try:
         # 如果3秒内没有返回worker加密后的消息，抛出异常并告警
